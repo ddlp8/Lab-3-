@@ -1,0 +1,78 @@
+// Parte B – Contador binario automático
+// Daniela López
+
+#include <Arduino.h>
+
+// Defino los pines de los LEDs 
+#define ledAzul     18  // Bit 0
+#define ledVerde    21  // Bit 1
+#define ledRojo     22  // Bit 2
+#define ledAmarillo 23  // Bit 3
+
+// Variable que lleva la cuenta actual (de 0 a 15)
+volatile uint8_t num = 0;
+
+// Creo un puntero al temporizador – lo uso para que el conteo sea automático
+hw_timer_t* tmrRapido = NULL;
+
+// Declaro funciones que voy a usar después
+void IRAM_ATTR subirCadaTanto();
+void apagarLeds();
+void verBinario(uint8_t n);
+
+void setup() {
+  // Configuro los pines de los LEDs como salidas
+  pinMode(ledAzul, OUTPUT);
+  pinMode(ledVerde, OUTPUT);
+  pinMode(ledRojo, OUTPUT);
+  pinMode(ledAmarillo, OUTPUT);
+
+  // Apago todos los LEDs al inicio y muestro el valor inicial (0)
+  apagarLeds();
+  verBinario(num);
+
+  // Configuro el temporizador:
+  // - Timer 0
+  // - Prescaler de 80 → cada tick es 1 microsegundo (µs)
+  // - true para que el conteo sea ascendente
+  tmrRapido = timerBegin(0, 80, true);
+
+  // Asocio la interrupción del timer con la función que suma
+  timerAttachInterrupt(tmrRapido, &subirCadaTanto, true);
+
+  // El temporizador se activa cada 250 mil microsegundos = 250 ms
+  timerAlarmWrite(tmrRapido, 250000, true);
+
+  // Habilito la alarma del temporizador
+  timerAlarmEnable(tmrRapido);
+}
+
+void loop() {
+  // En esta parte no hago nada porque todo lo controla el temporizador
+}
+
+// Esta función se llama automáticamente cada 250 ms
+void IRAM_ATTR subirCadaTanto() {
+  num++;              // Sumo 1 al contador
+  if (num > 15) num = 0;  // Si llego a 16, regreso a 0
+  verBinario(num);    // Muestro el nuevo número en binario con los LEDs
+}
+
+// Apago todos los LEDs (por si alguno quedó encendido antes)
+void apagarLeds() {
+  digitalWrite(ledAzul, LOW);
+  digitalWrite(ledVerde, LOW);
+  digitalWrite(ledRojo, LOW);
+  digitalWrite(ledAmarillo, LOW);
+}
+
+// Enciendo los LEDs correspondientes según el número binario
+void verBinario(uint8_t n) {
+  apagarLeds(); // Apago todo antes de actualizar
+
+  // Enciendo cada LED si el bit correspondiente del número está en 1
+  if (n & (1 << 0)) digitalWrite(ledAzul, HIGH);
+  if (n & (1 << 1)) digitalWrite(ledVerde, HIGH);
+  if (n & (1 << 2)) digitalWrite(ledRojo, HIGH);
+  if (n & (1 << 3)) digitalWrite(ledAmarillo, HIGH);
+}
