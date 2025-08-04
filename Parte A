@@ -1,0 +1,106 @@
+//PARTE A Contador binario de 4 bits con interrupciones
+//Daniela López
+//29/07/2025
+
+#include <Arduino.h>
+
+// LEDS - NO CAMBIAR
+#define ledAzul     18  // Bit 0
+#define ledVerde    21  // Bit 1
+#define ledRojo     22  // Bit 2
+#define ledAmarillo 23  // Bit 3
+
+// Botones con pull-up
+#define pinSube     15
+#define pinBaja     4
+
+// Variables del contador y control
+uint8_t num = 0;  // Contador principal (0 a 15)
+volatile bool subio = false;
+volatile bool bajo = false;
+
+// Antirrebote
+const unsigned long pausa = 200;
+volatile unsigned long tSube = 0;
+volatile unsigned long tBaja = 0;
+
+// Prototipos
+void apagarLeds();
+void verBinario(uint8_t n);
+void IRAM_ATTR cuandoSuba();
+void IRAM_ATTR cuandoBaje();
+
+void setup() {
+  // LEDs como salidas
+  pinMode(ledAzul, OUTPUT);
+  pinMode(ledVerde, OUTPUT);
+  pinMode(ledRojo, OUTPUT);
+  pinMode(ledAmarillo, OUTPUT);
+
+  // Botones como entradas pull-up
+  pinMode(pinSube, INPUT_PULLUP);
+  pinMode(pinBaja, INPUT_PULLUP);
+
+  // Estado inicial
+  apagarLeds();
+  verBinario(num);
+
+  delay(100); // para estabilicar el sistema de los leds
+
+  // Interrupciones configuradas
+  attachInterrupt(digitalPinToInterrupt(pinSube), cuandoSuba, FALLING);
+  attachInterrupt(digitalPinToInterrupt(pinBaja), cuandoBaje, FALLING);
+}
+
+void loop() {
+  unsigned long ahora = millis();
+
+  // Si se presionó subir
+  if (subio && (ahora - tSube > pausa)) {
+    num = (num + 1) % 16;  // Cicla entre 0–15
+    verBinario(num);
+    subio = false;
+  }
+
+  // Si se presionó bajar
+  if (bajo && (ahora - tBaja > pausa)) {
+    num = (num == 0) ? 15 : num - 1;
+    verBinario(num);
+    bajo = false;
+  }
+}
+
+// ISR para subir contador
+void IRAM_ATTR cuandoSuba() {
+  unsigned long t = millis();
+  if (t - tSube > pausa) {
+    subio = true;
+    tSube = t;
+  }
+}
+
+// ISR para bajar contador
+void IRAM_ATTR cuandoBaje() {
+  unsigned long t = millis();
+  if (t - tBaja > pausa) {
+    bajo = true;
+    tBaja = t;
+  }
+}
+
+// Apagar LEDs
+void apagarLeds() {
+  digitalWrite(ledAzul, LOW);
+  digitalWrite(ledVerde, LOW);
+  digitalWrite(ledRojo, LOW);
+  digitalWrite(ledAmarillo, LOW);
+}
+
+// Mostrar valor binario con LEDs
+void verBinario(uint8_t n) {
+  apagarLeds();
+  if (n & (1 << 0)) digitalWrite(ledAzul, HIGH);
+  if (n & (1 << 1)) digitalWrite(ledVerde, HIGH);
+  if (n & (1 << 2)) digitalWrite(ledRojo, HIGH);
+  if (n & (1 << 3)) digitalWrite(ledAmarillo, HIGH);
+}
