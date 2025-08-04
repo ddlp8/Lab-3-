@@ -1,0 +1,207 @@
+ * PARTE A–D – Sistema de contador binario doble con alarma y reset
+ * Autora: Daniela López
+ * Fecha: 04/08/2025
+ * Descripción:
+ * - Contador manual controlado por botones (sube/baja)
+ * - Contador automático por timer (250ms)
+ * - Al coincidir ambos contadores, el LED blanco alterna estado (ON/OFF)
+ * - El contador automático se reinicia tras coincidencia
+ * - Un botón B3 (sensor capacitivo en pin 5) permite reiniciar el contador automático manualmente
+ */
+
+#include <Arduino.h>
+
+/****************************************/
+// Pines para LEDs (Manual)
+#define ledManual_0 18
+#define ledManual_1 21
+#define ledManual_2 22
+#define ledManual_3 23
+
+// Pines para LEDs (Automático)
+#define ledAuto_0   14
+#define ledAuto_1   25
+#define ledAuto_2   27
+#define ledAuto_3   26
+
+// LED de Alarma
+#define ledAlarma   19
+
+// Botones físicos
+#define pinSube     15
+#define pinBaja     4
+
+// Botón B3: Sensor capacitivo para reset
+#define pinReset    5
+
+/****************************************/
+// Variables globales
+volatile uint8_t contadorManual = 0;
+volatile uint8_t contadorAuto = 0;
+volatile bool subio = false;
+volatile bool bajo = false;
+bool estadoAlarma = false;               // Estado del LED blanco
+bool resetPresionado = false;           // Flanco para botón de reset
+
+const unsigned long pausa = 200;
+volatile unsigned long tSube = 0;
+volatile unsigned long tBaja = 0;
+
+hw_timer_t* tmrAuto = NULL;
+
+/****************************************/
+// Prototipos
+void apagarLedsManual();
+void apagarLedsAuto();
+void verBinarioManual(uint8_t valor);
+void verBinarioAuto(uint8_t valor);
+void IRAM_ATTR ISR_subirManual();
+void IRAM_ATTR ISR_bajarManual();
+void IRAM_ATTR ISR_contadorAutomatico();
+
+/****************************************/
+void setup() {
+  // LEDs Manuales
+  pinMode(ledManual_0, OUTPUT);
+  pinMode(ledManual_1, OUTPUT);
+  pinMode(ledManual_2, OUTPUT);
+  pinMode(ledManual_3, OUTPUT);
+
+  // LEDs Automáticos
+  pinMode(ledAuto_0, OUTPUT);
+  pinMode(ledAuto_1, OUTPUT);
+  pinMode(ledAuto_2, OUTPUT);
+  pinMode(ledAuto_3, OUTPUT);
+
+  // LED de Alarma
+  pinMode(ledAlarma, OUTPUT);
+  digitalWrite(ledAlarma, LOW);
+
+  // Botones físicos
+  pinMode(pinSube, INPUT_PULLUP);
+  pinMode(pinBaja, INPUT_PULLUP);
+
+  // Botón de reset (sensor capacitivo)
+  pinMode(pinReset, INPUT);  // Pull-down físico externo
+
+  // Estado inicial
+  apagarLedsManual();
+  apagarLedsAuto();
+  verBinarioManual(contadorManual);
+  verBinarioAuto(contadorAuto);
+
+  delay(100);  // Estabilización
+
+  // Interrupciones de botones
+  attachInterrupt(digitalPinToInterrupt(pinSube), ISR_subirManual, FALLING);
+  attachInterrupt(digitalPinToInterrupt(pinBaja), ISR_bajarManual, FALLING);
+
+  // Temporizador automático: cada 250 ms
+  tmrAuto = timerBegin(0, 80, true); // Prescaler 80 → 1 tick = 1 µs
+  timerAttachInterrupt(tmrAuto, &ISR_contadorAutomatico, true);
+  timerAlarmWrite(tmrAuto, 250000, true);
+  timerAlarmEnable(tmrAuto);
+}
+
+/****************************************/
+void loop() {
+  unsigned long ahora = millis();
+
+  // Parte A – Botón subir
+  if (subio && (ahora - tSube > pausa)) {
+    contadorManual = (contadorManual + 1) % 16;
+    verBinarioManual(contadorManual);
+    subio = false;
+  }
+
+  // Parte A – Botón bajar
+  if (bajo && (ahora - tBaja > pausa)) {
+    contadorManual = (contadorManual == 0) ? 15 : contadorManual - 1;
+    verBinarioManual(contadorManual);
+    bajo = false;
+  }
+
+  // Parte D – Botón B3 (reset del contador automático)
+  if (digitalRead(pinReset) == HIGH && !resetPresionado) {
+    contadorAuto = 0;
+    verBinarioAuto(contadorAuto);
+    resetPresionado = true;
+  }
+
+  if (digitalRead(pinReset) == LOW && resetPresionado) {
+    resetPresionado = false;
+  }
+}
+
+/****************************************/
+// Subrutinas no interrupción
+
+void apagarLedsManual() {
+  digitalWrite(ledManual_0, LOW);
+  digitalWrite(ledManual_1, LOW);
+  digitalWrite(ledManual_2, LOW);
+  digitalWrite(ledManual_3, LOW);
+}
+
+void apagarLedsAuto() {
+  digitalWrite(ledAuto_0, LOW);
+  digitalWrite(ledAuto_1, LOW);
+  digitalWrite(ledAuto_2, LOW);
+  digitalWrite(ledAuto_3, LOW);
+}
+
+void verBinarioManual(uint8_t n) {
+  apagarLedsManual();
+  if (n & (1 << 0)) digitalWrite(ledManual_0, HIGH);
+  if (n & (1 << 1)) digitalWrite(ledManual_1, HIGH);
+  if (n & (1 << 2)) digitalWrite(ledManual_2, HIGH);
+  if (n & (1 << 3)) digitalWrite(ledManual_3, HIGH);
+}
+
+void verBinarioAuto(uint8_t n) {
+  apagarLedsAuto();
+  if (n & (1 << 0)) digitalWrite(ledAuto_0, HIGH);
+  if (n & (1 << 1)) digitalWrite(ledAuto_1, HIGH);
+  if (n & (1 << 2)) digitalWrite(ledAuto_2, HIGH);
+  if (n & (1 << 3)) digitalWrite(ledAuto_3, HIGH);
+}
+
+/****************************************/
+// Rutinas de interrupción
+
+void IRAM_ATTR ISR_subirManual() {
+  unsigned long t = millis();
+  if (t - tSube > pausa) {
+    subio = true;
+    tSube = t;
+  }
+}
+
+void IRAM_ATTR ISR_bajarManual() {
+  unsigned long t = millis();
+  if (t - tBaja > pausa) {
+    bajo = true;
+    tBaja = t;
+  }
+}
+
+void IRAM_ATTR ISR_contadorAutomatico() {
+  static bool coincidenciaDetectada = false;
+
+  contadorAuto = (contadorAuto + 1) % 16;
+  verBinarioAuto(contadorAuto);
+
+  if (contadorAuto == contadorManual && !coincidenciaDetectada) {
+    coincidenciaDetectada = true;
+
+    estadoAlarma = !estadoAlarma;
+    digitalWrite(ledAlarma, estadoAlarma ? HIGH : LOW);
+
+    contadorAuto = 0;
+    verBinarioAuto(contadorAuto);
+  }
+
+  if (contadorAuto != contadorManual) {
+    coincidenciaDetectada = false;
+  }
+}
