@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 
-// LEDS - NO CAMBIAR
+// Defino Pines
 #define ledAzul     18  // Bit 0
 #define ledVerde    21  // Bit 1
 #define ledRojo     22  // Bit 2
@@ -14,17 +14,19 @@
 #define pinSube     15
 #define pinBaja     4
 
-// Variables del contador y control
+// Variables del contador que es de 8 bitts pero solo uso del 0-15
 uint8_t num = 0;  // Contador principal (0 a 15)
+//Me sirven para ver si presioné el botón o no
 volatile bool subio = false;
 volatile bool bajo = false;
 
-// Antirrebote
+// Antirrebote para evitar que un toque cuente varias veces
 const unsigned long pausa = 200;
 volatile unsigned long tSube = 0;
 volatile unsigned long tBaja = 0;
 
 // Prototipos
+//declaro las funciones que usaré después
 void apagarLeds();
 void verBinario(uint8_t n);
 void IRAM_ATTR cuandoSuba();
@@ -41,7 +43,7 @@ void setup() {
   pinMode(pinSube, INPUT_PULLUP);
   pinMode(pinBaja, INPUT_PULLUP);
 
-  // Estado inicial
+  // Estado inicial que muestra el numero inicila que es 0
   apagarLeds();
   verBinario(num);
 
@@ -55,14 +57,14 @@ void setup() {
 void loop() {
   unsigned long ahora = millis();
 
-  // Si se presionó subir
+  // Si se presionó el boton de subir
   if (subio && (ahora - tSube > pausa)) {
     num = (num + 1) % 16;  // Cicla entre 0–15
     verBinario(num);
     subio = false;
   }
 
-  // Si se presionó bajar
+  // Si se presionó el botón de bajar
   if (bajo && (ahora - tBaja > pausa)) {
     num = (num == 0) ? 15 : num - 1;
     verBinario(num);
@@ -97,7 +99,7 @@ void apagarLeds() {
 }
 
 // Mostrar valor binario con LEDs
-void verBinario(uint8_t n) {
+void verBinario(uint8_t n) { //esta funcion enciende los led segun el valor binario "n"
   apagarLeds();
   if (n & (1 << 0)) digitalWrite(ledAzul, HIGH);
   if (n & (1 << 1)) digitalWrite(ledVerde, HIGH);
