@@ -1,57 +1,52 @@
-/*
- * PARTE A–D – Sistema de contador binario doble con alarma y reset
- * Autora: Daniela López
- * Fecha: 04/08/2025
- * Descripción:
- * - Contador manual controlado por botones (sube/baja)
- * - Contador automático por timer (250ms)
- * - Al coincidir ambos contadores, el LED blanco alterna estado (ON/OFF)
- * - El contador automático se reinicia tras coincidencia
- * - Un botón B3 (sensor capacitivo en pin 5) permite reiniciar el contador automático manualmente
- */
+//PARTE A–D – Sistema de contador binario doble con alarma y reset
+//Autora: Daniela López
 
-#include <Arduino.h>
 
-/****************************************/
+#include <Arduino.h>  // Siempre lo primero que cargo para trabajar con placas tipo ESP32
+
+//
 // Pines para LEDs (Manual)
 #define ledManual_0 18
 #define ledManual_1 21
 #define ledManual_2 22
 #define ledManual_3 23
+// Estos cuatro pines los uso para representar en binario el contador manual
 
 // Pines para LEDs (Automático)
 #define ledAuto_0   14
 #define ledAuto_1   25
 #define ledAuto_2   27
 #define ledAuto_3   26
+// Lo mismo acá, pero estos representan el contador automático
 
 // LED de Alarma
-#define ledAlarma   19
+#define ledAlarma   19  // El LED blanco que se prende/apaga cuando hay coincidencia
 
 // Botones físicos
-#define pinSube     15
-#define pinBaja     4
+#define pinSube     15  // Botón para subir el contador manual
+#define pinBaja     4   // Botón para bajarlo
 
 // Botón B3: Sensor capacitivo para reset
-#define pinReset    5
+#define pinReset    5   // El pin donde conecté el sensor capacitivo que resetea el contador automático
 
-/****************************************/
+//
 // Variables globales
-volatile uint8_t contadorManual = 0;
-volatile uint8_t contadorAuto = 0;
-volatile bool subio = false;
-volatile bool bajo = false;
-bool estadoAlarma = false;               // Estado del LED blanco
-bool resetPresionado = false;           // Flanco para botón de reset
+volatile uint8_t contadorManual = 0;  // Almacena el valor actual del contador manual (0-15)
+volatile uint8_t contadorAuto = 0;    // Almacena el valor del contador automático
+volatile bool subio = false;          // Bandera que indica si presionaron el botón de subir
+volatile bool bajo = false;           // Bandera que indica si presionaron el de bajar
+bool estadoAlarma = false;            // Me dice si el LED blanco está encendido o apagado
+bool resetPresionado = false;         // Para detectar un solo flanco de subida del botón de reset
 
-const unsigned long pausa = 200;
-volatile unsigned long tSube = 0;
-volatile unsigned long tBaja = 0;
+const unsigned long pausa = 200;      // Tiempo mínimo entre pulsos para evitar rebotes
+volatile unsigned long tSube = 0;     // Último tiempo en el que se presionó el botón de subir
+volatile unsigned long tBaja = 0;     // Último tiempo del botón de bajar
 
-hw_timer_t* tmrAuto = NULL;
+hw_timer_t* tmrAuto = NULL;           // Timer del contador automático
 
-/****************************************/
+//
 // Prototipos
+// Estas son funciones que voy a usar más adelante
 void apagarLedsManual();
 void apagarLedsAuto();
 void verBinarioManual(uint8_t valor);
@@ -60,83 +55,84 @@ void IRAM_ATTR ISR_subirManual();
 void IRAM_ATTR ISR_bajarManual();
 void IRAM_ATTR ISR_contadorAutomatico();
 
-/****************************************/
+//
 void setup() {
-  // LEDs Manuales
+  // Configuro cada LED como salida
   pinMode(ledManual_0, OUTPUT);
   pinMode(ledManual_1, OUTPUT);
   pinMode(ledManual_2, OUTPUT);
   pinMode(ledManual_3, OUTPUT);
 
-  // LEDs Automáticos
   pinMode(ledAuto_0, OUTPUT);
   pinMode(ledAuto_1, OUTPUT);
   pinMode(ledAuto_2, OUTPUT);
   pinMode(ledAuto_3, OUTPUT);
 
-  // LED de Alarma
+  // LED de alarma también como salida
   pinMode(ledAlarma, OUTPUT);
-  digitalWrite(ledAlarma, LOW);
+  digitalWrite(ledAlarma, LOW);  // Lo dejo apagado al inicio
 
-  // Botones físicos
+  // Configuro los botones físicos con resistencias internas pull-up
   pinMode(pinSube, INPUT_PULLUP);
   pinMode(pinBaja, INPUT_PULLUP);
 
-  // Botón de reset (sensor capacitivo)
-  pinMode(pinReset, INPUT);  // Pull-down físico externo
+  // Sensor capacitivo (tiene su propia resistencia pull-down externa)
+  pinMode(pinReset, INPUT);
 
-  // Estado inicial
+  // Apago todos los LEDs al inicio y muestro los valores iniciales
   apagarLedsManual();
   apagarLedsAuto();
   verBinarioManual(contadorManual);
   verBinarioAuto(contadorAuto);
 
-  delay(100);  // Estabilización
+  delay(100);  // Un pequeño delay para estabilizar el sistema
 
-  // Interrupciones de botones
+  // Configuro interrupciones para los botones físicos
   attachInterrupt(digitalPinToInterrupt(pinSube), ISR_subirManual, FALLING);
   attachInterrupt(digitalPinToInterrupt(pinBaja), ISR_bajarManual, FALLING);
 
-  // Temporizador automático: cada 250 ms
-  tmrAuto = timerBegin(0, 80, true); // Prescaler 80 → 1 tick = 1 µs
+  // Configuro el timer automático para que haga su trabajo cada 250 ms
+  tmrAuto = timerBegin(0, 80, true); // Prescaler = 80 → 1 tick = 1 µs
   timerAttachInterrupt(tmrAuto, &ISR_contadorAutomatico, true);
-  timerAlarmWrite(tmrAuto, 250000, true);
+  timerAlarmWrite(tmrAuto, 250000, true);  // 250,000 µs = 250 ms
   timerAlarmEnable(tmrAuto);
 }
 
-/****************************************/
+//
 void loop() {
   unsigned long ahora = millis();
 
-  // Parte A – Botón subir
+  // Si se presionó el botón de subir (y pasó el tiempo de rebote)
   if (subio && (ahora - tSube > pausa)) {
     contadorManual = (contadorManual + 1) % 16;
     verBinarioManual(contadorManual);
-    subio = false;
+    subio = false;  // Vuelvo a poner la bandera en false
   }
 
-  // Parte A – Botón bajar
+  // Si se presionó el botón de bajar
   if (bajo && (ahora - tBaja > pausa)) {
     contadorManual = (contadorManual == 0) ? 15 : contadorManual - 1;
     verBinarioManual(contadorManual);
     bajo = false;
   }
 
-  // Parte D – Botón B3 (reset del contador automático)
+  // Si se activó el sensor capacitivo y no lo había detectado antes
   if (digitalRead(pinReset) == HIGH && !resetPresionado) {
-    contadorAuto = 0;
+    contadorAuto = 0;  // Reinicio el contador automático a cero
     verBinarioAuto(contadorAuto);
-    resetPresionado = true;
+    resetPresionado = true;  // Marco que ya lo detecté
   }
 
+  // Espero que se suelte el sensor capacitivo para volver a detectar el siguiente toque
   if (digitalRead(pinReset) == LOW && resetPresionado) {
     resetPresionado = false;
   }
 }
 
-/****************************************/
-// Subrutinas no interrupción
+//
+// Funciones auxiliares
 
+// Apago todos los LEDs del contador manual
 void apagarLedsManual() {
   digitalWrite(ledManual_0, LOW);
   digitalWrite(ledManual_1, LOW);
@@ -144,6 +140,7 @@ void apagarLedsManual() {
   digitalWrite(ledManual_3, LOW);
 }
 
+// Apago todos los LEDs del contador automático
 void apagarLedsAuto() {
   digitalWrite(ledAuto_0, LOW);
   digitalWrite(ledAuto_1, LOW);
@@ -151,6 +148,7 @@ void apagarLedsAuto() {
   digitalWrite(ledAuto_3, LOW);
 }
 
+// Muestro el número binario en los LEDs manuales
 void verBinarioManual(uint8_t n) {
   apagarLedsManual();
   if (n & (1 << 0)) digitalWrite(ledManual_0, HIGH);
@@ -159,6 +157,7 @@ void verBinarioManual(uint8_t n) {
   if (n & (1 << 3)) digitalWrite(ledManual_3, HIGH);
 }
 
+// Igual pero para los LEDs automáticos
 void verBinarioAuto(uint8_t n) {
   apagarLedsAuto();
   if (n & (1 << 0)) digitalWrite(ledAuto_0, HIGH);
@@ -167,9 +166,10 @@ void verBinarioAuto(uint8_t n) {
   if (n & (1 << 3)) digitalWrite(ledAuto_3, HIGH);
 }
 
-/****************************************/
-// Rutinas de interrupción
+//
+// Interrupciones
 
+// Interrupción para subir el contador manual
 void IRAM_ATTR ISR_subirManual() {
   unsigned long t = millis();
   if (t - tSube > pausa) {
@@ -178,6 +178,7 @@ void IRAM_ATTR ISR_subirManual() {
   }
 }
 
+// Interrupción para bajar el contador manual
 void IRAM_ATTR ISR_bajarManual() {
   unsigned long t = millis();
   if (t - tBaja > pausa) {
@@ -186,19 +187,21 @@ void IRAM_ATTR ISR_bajarManual() {
   }
 }
 
+// Interrupción del contador automático que se ejecuta cada 250 ms
 void IRAM_ATTR ISR_contadorAutomatico() {
-  static bool estadoAlarmaInterno = false;
-  static uint8_t ultimoValorCoincidente = 255;  // Inicial inválido
+  static bool estadoAlarmaInterno = false;       // Alarma interna para alternar el LED
+  static uint8_t ultimoValorCoincidente = 255;   // Valor anterior para evitar múltiples cambios seguidos
 
-  contadorAuto = (contadorAuto + 1) % 16;
-  verBinarioAuto(contadorAuto);
+  contadorAuto = (contadorAuto + 1) % 16;  // Aumento el contador automático
+  verBinarioAuto(contadorAuto);            // Actualizo los LEDs
 
+  // Si coinciden ambos contadores
   if (contadorAuto == contadorManual) {
-    // Si es la primera coincidencia o ha cambiado el valor
+    // Pero solo si es una coincidencia nueva
     if (contadorAuto != ultimoValorCoincidente) {
-      estadoAlarmaInterno = !estadoAlarmaInterno;
+      estadoAlarmaInterno = !estadoAlarmaInterno;  // Alterno el estado del LED blanco
       digitalWrite(ledAlarma, estadoAlarmaInterno ? HIGH : LOW);
-      ultimoValorCoincidente = contadorAuto;
+      ultimoValorCoincidente = contadorAuto;  // Guardo el valor actual como referencia
     }
   }
 }
