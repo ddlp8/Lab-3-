@@ -1,43 +1,46 @@
-//no estoy segura si si deberia de funcionar así
+//Parte C código correcto
+
 #include <Arduino.h>
 
-/****************************************/
-// Pines para LEDs (Manual)
-#define ledManual_0 18
-#define ledManual_1 21
-#define ledManual_2 22
-#define ledManual_3 23
+//
+// Pines para LEDs del contador *manual*
+#define ledManual_0 18  // Bit 0
+#define ledManual_1 21  // Bit 1
+#define ledManual_2 22  // Bit 2
+#define ledManual_3 23  // Bit 3
 
-// Pines para LEDs (Automático)
+// Pines para LEDs del contador *automático*
 #define ledAuto_0   14
 #define ledAuto_1   25
 #define ledAuto_2   27
 #define ledAuto_3   26
 
-// LED de Alarma
+// LED de Alarma (se enciende cuando los dos contadores coinciden)
 #define ledAlarma   19
 
-// Botones
+// Pines de los botones para controlar el contador manual
 #define pinSube     15
 #define pinBaja     4
 
-/****************************************/
+//
 // Variables globales
-volatile uint8_t contadorManual = 0;
-volatile uint8_t contadorAuto = 0;
-volatile bool subio = false;
-volatile bool bajo = false;
-bool estadoAlarma = false;             // Estado del LED blanco
-volatile bool coincidenciaDetectada = false; // Bandera de flanco de coincidencia
+volatile uint8_t contadorManual = 0;  // Contador que controlo con los botones
+volatile uint8_t contadorAuto = 0;    // Contador que avanza automáticamente con timer
+volatile bool subio = false;          // Bandera para detectar subida manual
+volatile bool bajo = false;           // Bandera para detectar bajada manual
+bool estadoAlarma = false;            // Estado del LED blanco de alarma (encendido o apagado)
+volatile bool coincidenciaDetectada = false; // Bandera que detecta coincidencia
 
+// Variables para antirrebote (evita que un solo toque cuente varias veces)
 const unsigned long pausa = 200;
 volatile unsigned long tSube = 0;
 volatile unsigned long tBaja = 0;
 
+// Timer que controla el contador automático
 hw_timer_t* tmrAuto = NULL;
 
-/****************************************/
-// Prototipos
+//
+// Prototipos de funciones
 void apagarLedsManual();
 void apagarLedsAuto();
 void verBinarioManual(uint8_t valor);
@@ -46,57 +49,59 @@ void IRAM_ATTR ISR_subirManual();
 void IRAM_ATTR ISR_bajarManual();
 void IRAM_ATTR ISR_contadorAutomatico();
 
-/****************************************/
+//
 void setup() {
-  // LEDs Manuales
+  // Configuro los LEDs del contador manual como salidas
   pinMode(ledManual_0, OUTPUT);
   pinMode(ledManual_1, OUTPUT);
   pinMode(ledManual_2, OUTPUT);
   pinMode(ledManual_3, OUTPUT);
 
-  // LEDs Automáticos
+  // Configuro los LEDs del contador automático como salidas
   pinMode(ledAuto_0, OUTPUT);
   pinMode(ledAuto_1, OUTPUT);
   pinMode(ledAuto_2, OUTPUT);
   pinMode(ledAuto_3, OUTPUT);
 
-  // LED de Alarma
+  // LED de alarma como salida y apagado al inicio
   pinMode(ledAlarma, OUTPUT);
   digitalWrite(ledAlarma, LOW);
 
-  // Botones
+  // Botones como entradas con resistencia interna pull-up activada
   pinMode(pinSube, INPUT_PULLUP);
   pinMode(pinBaja, INPUT_PULLUP);
 
-  // Estado inicial
+  // Estado inicial: todo en cero
   apagarLedsManual();
   apagarLedsAuto();
   verBinarioManual(contadorManual);
   verBinarioAuto(contadorAuto);
 
-  delay(100);  // Estabilización
+  delay(100);  // Pequeña pausa para estabilizar el sistema
 
-  // Interrupciones de botones
+  // Configuro las interrupciones para detectar cuando se presionan los botones
   attachInterrupt(digitalPinToInterrupt(pinSube), ISR_subirManual, FALLING);
   attachInterrupt(digitalPinToInterrupt(pinBaja), ISR_bajarManual, FALLING);
 
-  // Temporizador automático: cada 250 ms
-  tmrAuto = timerBegin(0, 80, true); // 80 prescaler → 1 tick = 1 µs
+  // Configuro el temporizador para que el contador automático suba cada 250 ms
+  tmrAuto = timerBegin(0, 80, true); // Prescaler de 80 → 1 tick = 1 µs
   timerAttachInterrupt(tmrAuto, &ISR_contadorAutomatico, true);
-  timerAlarmWrite(tmrAuto, 250000, true);
+  timerAlarmWrite(tmrAuto, 250000, true); // 250000 µs = 250 ms
   timerAlarmEnable(tmrAuto);
 }
 
-/****************************************/
+//
 void loop() {
+  // Verifico si se presionó el botón de subir
   unsigned long ahora = millis();
 
   if (subio && (ahora - tSube > pausa)) {
-    contadorManual = (contadorManual + 1) % 16;
-    verBinarioManual(contadorManual);
+    contadorManual = (contadorManual + 1) % 16; // Cicla entre 0 y 15
+    verBinarioManual(contadorManual);           // Actualizo LEDs
     subio = false;
   }
 
+  // Verifico si se presionó el botón de bajar
   if (bajo && (ahora - tBaja > pausa)) {
     contadorManual = (contadorManual == 0) ? 15 : contadorManual - 1;
     verBinarioManual(contadorManual);
@@ -104,8 +109,8 @@ void loop() {
   }
 }
 
-/****************************************/
-// Subrutinas no interrupción
+//
+// Funciones para manejar los LEDs
 
 void apagarLedsManual() {
   digitalWrite(ledManual_0, LOW);
@@ -121,6 +126,7 @@ void apagarLedsAuto() {
   digitalWrite(ledAuto_3, LOW);
 }
 
+// Enciendo los LEDs correspondientes según el valor del contador manual
 void verBinarioManual(uint8_t n) {
   apagarLedsManual();
   if (n & (1 << 0)) digitalWrite(ledManual_0, HIGH);
@@ -129,6 +135,7 @@ void verBinarioManual(uint8_t n) {
   if (n & (1 << 3)) digitalWrite(ledManual_3, HIGH);
 }
 
+// Enciendo los LEDs correspondientes según el valor del contador automático
 void verBinarioAuto(uint8_t n) {
   apagarLedsAuto();
   if (n & (1 << 0)) digitalWrite(ledAuto_0, HIGH);
@@ -137,9 +144,10 @@ void verBinarioAuto(uint8_t n) {
   if (n & (1 << 3)) digitalWrite(ledAuto_3, HIGH);
 }
 
-/****************************************/
-// Rutinas de interrupción
+//
+// Funciones de interrupción
 
+// Cuando se presiona el botón para subir
 void IRAM_ATTR ISR_subirManual() {
   unsigned long t = millis();
   if (t - tSube > pausa) {
@@ -148,6 +156,7 @@ void IRAM_ATTR ISR_subirManual() {
   }
 }
 
+// Cuando se presiona el botón para bajar
 void IRAM_ATTR ISR_bajarManual() {
   unsigned long t = millis();
   if (t - tBaja > pausa) {
@@ -156,28 +165,23 @@ void IRAM_ATTR ISR_bajarManual() {
   }
 }
 
+// Interrupción del temporizador: contador automático
 void IRAM_ATTR ISR_contadorAutomatico() {
-  static uint8_t pasosDesdeCoincidencia = 0;
+  static bool coincidenciaActiva = false;
 
+  // Aumento el contador automático
   contadorAuto = (contadorAuto + 1) % 16;
   verBinarioAuto(contadorAuto);
 
-  // Detectar coincidencia exacta
-  if (contadorAuto == contadorManual && !coincidenciaDetectada) {
-    coincidenciaDetectada = true;
-
-    // Cambiar estado del LED blanco
-    estadoAlarma = !estadoAlarma;
+  // Si los contadores coinciden y antes no estaban iguales
+  if (contadorAuto == contadorManual && !coincidenciaActiva) {
+    coincidenciaActiva = true;             // Marco que ya encontré coincidencia
+    estadoAlarma = !estadoAlarma;          // Cambio el estado del LED de alarma
     digitalWrite(ledAlarma, estadoAlarma ? HIGH : LOW);
-
-    // Reiniciar el contador automático para nuevo ciclo
-    contadorAuto = 0;
-    pasosDesdeCoincidencia = 0;
-    verBinarioAuto(contadorAuto);
   }
 
-  // Esperar a que se deshaga la coincidencia para detectar la próxima
+  // Si ya no coinciden, reinicio la bandera para poder detectar la siguiente coincidencia
   if (contadorAuto != contadorManual) {
-    coincidenciaDetectada = false;
-  }
+    coincidenciaActiva = false;
+  }
 }
