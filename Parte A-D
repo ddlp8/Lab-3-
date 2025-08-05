@@ -1,3 +1,4 @@
+/*
  * PARTE A–D – Sistema de contador binario doble con alarma y reset
  * Autora: Daniela López
  * Fecha: 04/08/2025
@@ -186,22 +187,18 @@ void IRAM_ATTR ISR_bajarManual() {
 }
 
 void IRAM_ATTR ISR_contadorAutomatico() {
-  static bool coincidenciaDetectada = false;
+  static bool estadoAlarmaInterno = false;
+  static uint8_t ultimoValorCoincidente = 255;  // Inicial inválido
 
   contadorAuto = (contadorAuto + 1) % 16;
   verBinarioAuto(contadorAuto);
 
-  if (contadorAuto == contadorManual && !coincidenciaDetectada) {
-    coincidenciaDetectada = true;
-
-    estadoAlarma = !estadoAlarma;
-    digitalWrite(ledAlarma, estadoAlarma ? HIGH : LOW);
-
-    contadorAuto = 0;
-    verBinarioAuto(contadorAuto);
-  }
-
-  if (contadorAuto != contadorManual) {
-    coincidenciaDetectada = false;
+  if (contadorAuto == contadorManual) {
+    // Si es la primera coincidencia o ha cambiado el valor
+    if (contadorAuto != ultimoValorCoincidente) {
+      estadoAlarmaInterno = !estadoAlarmaInterno;
+      digitalWrite(ledAlarma, estadoAlarmaInterno ? HIGH : LOW);
+      ultimoValorCoincidente = contadorAuto;
+    }
   }
 }
